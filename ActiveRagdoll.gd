@@ -34,6 +34,7 @@ func _ready():
 	current_stamina = max_stamina
 	if has_node(ground_ray_path):
 		_ground_ray = get_node(ground_ray_path)
+		_ground_ray.add_exception(self)
 
 	if camera_path and has_node(camera_path):
 		_camera = get_node(camera_path)
@@ -69,10 +70,10 @@ func _handle_balancing(state: PhysicsDirectBodyState3D):
 
 func _handle_movement(state: PhysicsDirectBodyState3D, delta: float):
 	# Get input
-	# Assuming Input Map actions: "move_left", "move_right", "move_up", "move_down", "sprint"
+	# Assuming Input Map actions: "move_left", "move_right", "move_forward", "move_backward", "sprint"
 	var input_dir = Vector2.ZERO
 	input_dir.x = Input.get_axis("move_left", "move_right")
-	input_dir.y = Input.get_axis("move_up", "move_down") # forward/back
+	input_dir.y = Input.get_axis("move_forward", "move_backward") # forward/back
 
 	# Stamina Logic
 	var is_sprinting = Input.is_action_pressed("sprint")
