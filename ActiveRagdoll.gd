@@ -39,9 +39,16 @@ var current_state: State = State.NORMAL
 @export_group("References")
 @export var camera_path: NodePath
 
+@export_group("Camera Control")
+@export var mouse_sensitivity: float = 0.003
+@export var camera_pivot_path: NodePath = "CameraPivot"
+@export var min_pitch: float = -80.0
+@export var max_pitch: float = 60.0
+
 var current_stamina: float = 100.0
 var _ground_ray: RayCast3D
 var _camera: Camera3D
+var _camera_pivot: Node3D
 
 # Internal Combat Variables
 var _tackle_timer: float = 0.0
@@ -56,17 +63,59 @@ func _ready():
 	_default_mass = mass
 	_default_angular_damp = angular_damp
 
+	# Setup Ground Ray
 	if has_node(ground_ray_path):
 		_ground_ray = get_node(ground_ray_path)
-		_ground_ray.add_exception(self)
+		_ground_ray.enabled = true
+		_ground_ray.target_position = Vector3(0, -suspension_height * 2.0, 0)
 
-	if camera_path and has_node(camera_path):
-		_camera = get_node(camera_path)
-	else:
+		# Add exceptions for self and all child collision objects (like Head)
+		_add_exceptions_recursive(self)
+
+	# Setup Camera
+	if has_node(camera_pivot_path):
+		_camera_pivot = get_node(camera_pivot_path)
+		_camera_pivot.set_as_top_level(true) # Detach from RigidBody rotation
+
+		# Ensure camera reference is correct
+		if camera_path and has_node(camera_path):
+			_camera = get_node(camera_path)
+		elif _camera_pivot.has_node("SpringArm3D/Camera3D"):
+			_camera = _camera_pivot.get_node("SpringArm3D/Camera3D")
+
+	if not _camera:
 		# Fallback to finding a camera if not assigned
 		var viewport = get_viewport()
 		if viewport:
 			_camera = viewport.get_camera_3d()
+
+	# Capture mouse
+	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
+
+func _add_exceptions_recursive(node: Node):
+	if node is CollisionObject3D:
+		_ground_ray.add_exception(node)
+
+	for child in node.get_children():
+		_add_exceptions_recursive(child)
+
+func _input(event):
+	if event is InputEventMouseMotion and _camera_pivot:
+		# Rotate Pivot (Yaw)
+		_camera_pivot.rotate_y(-event.relative.x * mouse_sensitivity)
+
+		# Rotate SpringArm or internal node for Pitch
+		# Assuming structure: Pivot -> SpringArm3D -> Camera3D
+		var spring_arm = _camera_pivot.get_node_or_null("SpringArm3D")
+		if spring_arm:
+			var new_rotation_x = spring_arm.rotation.x - event.relative.y * mouse_sensitivity
+			new_rotation_x = clamp(new_rotation_x, deg_to_rad(min_pitch), deg_to_rad(max_pitch))
+			spring_arm.rotation.x = new_rotation_x
+
+func _physics_process(delta):
+	# Update Camera Pivot Position to follow Torso
+	if _camera_pivot:
+		_camera_pivot.global_position = global_position
 
 func _integrate_forces(state: PhysicsDirectBodyState3D):
 	var delta = state.step
@@ -218,14 +267,17 @@ func _handle_movement(state: PhysicsDirectBodyState3D, delta: float):
 	if input_dir.length() > 0:
 		input_dir = input_dir.normalized()
 
+		# Determine Movement Direction relative to Camera Pivot (or Camera)
+		# Using CameraPivot is safer as Camera might be pitching
 		var forward = Vector3.FORWARD
 		var right = Vector3.RIGHT
 
-		# If a camera is available, move relative to the camera view
-		if _camera:
-			var cam_basis = _camera.global_transform.basis
-			forward = -cam_basis.z
-			right = cam_basis.x
+		if _camera_pivot:
+			forward = -_camera_pivot.global_transform.basis.z
+			right = _camera_pivot.global_transform.basis.x
+		elif _camera:
+			forward = -_camera.global_transform.basis.z
+			right = _camera.global_transform.basis.x
 
 		# Flatten vectors to the horizontal plane to avoid flying/digging
 		forward.y = 0
@@ -251,7 +303,9 @@ func _handle_suspension_and_jump(state: PhysicsDirectBodyState3D):
 		# suspension_height is the desired distance from ray origin to ground
 		var compression = suspension_height - distance
 
-		if compression > 0:
+		# Only apply force if compressed (body is lower than suspension height)
+		# AND distance is reasonable (not 0, which implies bug or inside floor)
+		if compression > 0 and distance > 0.01:
 			var spring_dir = Vector3.UP # Simple approximation, or use contact normal
 
 			# Spring Force: F = k * x
@@ -263,6 +317,9 @@ func _handle_suspension_and_jump(state: PhysicsDirectBodyState3D):
 			var damping_force_mag = -vertical_velocity * suspension_damp
 
 			var total_upward_force = spring_force_mag + damping_force_mag
+
+			# Clamp force to avoid exploding physics (optional but good practice)
+			# But for now, rely on correct params.
 
 			# Apply to body
 			apply_central_force(spring_dir * total_upward_force)
