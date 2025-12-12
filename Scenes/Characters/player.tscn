@@ -10,6 +10,7 @@ radius = 0.25
 height = 0.75
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_gy20a"]
+radius = 0.37401068
 
 [sub_resource type="SphereShape3D" id="SphereShape3D_cqrjx"]
 radius = 0.25
@@ -36,6 +37,7 @@ shape = SubResource("SphereShape3D_gy20a")
 
 [node name="RayCast3D" type="RayCast3D" parent="Torso"]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.6442065, 0)
+collision_mask = 2
 
 [node name="CameraPivot" type="Node3D" parent="Torso"]
 
