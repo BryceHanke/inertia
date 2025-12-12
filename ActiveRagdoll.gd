@@ -3,10 +3,23 @@ extends RigidBody3D
 # ActiveRagdoll.gd
 # Core character controller for a physically simulated character.
 
+enum State { NORMAL, TACKLING, CRUMPLED }
+var current_state: State = State.NORMAL
+
 @export_group("Movement")
 @export var move_speed: float = 50.0 # Force multiplier for running
 @export var sprint_multiplier: float = 1.5
 @export var jump_force: float = 500.0 # Impulse strength
+
+@export_group("Combat")
+@export var tackle_force: float = 1000.0 # Impulse strength for tackling
+@export var tackle_duration: float = 0.5 # Duration of TACKLING state
+@export var tackle_cooldown: float = 1.0 # Time before next tackle
+@export var tackle_stamina_cost: float = 20.0
+@export var brace_mass_multiplier: float = 1.5
+@export var brace_angular_damp_add: float = 2.0
+@export var impact_threshold: float = 5.0 # Velocity threshold for crumbling.
+@export var crumple_duration: float = 2.0
 
 @export_group("Balancing")
 @export var upright_torque: float = 100.0 # How hard it tries to stand up
@@ -30,8 +43,19 @@ var current_stamina: float = 100.0
 var _ground_ray: RayCast3D
 var _camera: Camera3D
 
+# Internal Combat Variables
+var _tackle_timer: float = 0.0
+var _cooldown_timer: float = 0.0
+var _crumple_timer: float = 0.0
+var _default_mass: float
+var _default_angular_damp: float
+var _is_bracing: bool = false
+
 func _ready():
 	current_stamina = max_stamina
+	_default_mass = mass
+	_default_angular_damp = angular_damp
+
 	if has_node(ground_ray_path):
 		_ground_ray = get_node(ground_ray_path)
 
@@ -46,9 +70,110 @@ func _ready():
 func _integrate_forces(state: PhysicsDirectBodyState3D):
 	var delta = state.step
 
-	_handle_balancing(state)
-	_handle_movement(state, delta)
-	_handle_suspension_and_jump(state)
+	# Timer Updates
+	if _tackle_timer > 0:
+		_tackle_timer -= delta
+		if _tackle_timer <= 0 and current_state == State.TACKLING:
+			current_state = State.NORMAL
+
+	if _cooldown_timer > 0:
+		_cooldown_timer -= delta
+
+	if current_state == State.CRUMPLED:
+		_crumple_timer -= delta
+		if _crumple_timer <= 0:
+			current_state = State.NORMAL
+			# Restore upright force implied by state change
+
+	# Logic Routing
+	_handle_combat_inputs(state, delta) # Handle inputs regardless of state (mostly for brace)
+
+	if current_state != State.CRUMPLED:
+		_handle_balancing(state)
+
+	if current_state == State.NORMAL:
+		_handle_movement(state, delta)
+		_handle_suspension_and_jump(state)
+	elif current_state == State.TACKLING:
+		# Maybe allow suspension so they don't fall through floor, but no movement control
+		_handle_suspension_and_jump(state)
+		# No _handle_movement (steering disabled during tackle)
+
+	# Collisions & Crumple Logic
+	_handle_collisions(state)
+
+func _handle_combat_inputs(state: PhysicsDirectBodyState3D, delta: float):
+	# 3. The Brace Mechanic
+	# Check Brace Input (LT)
+	if Input.is_action_pressed("brace"):
+		if not _is_bracing:
+			mass = _default_mass * brace_mass_multiplier
+			angular_damp = _default_angular_damp + brace_angular_damp_add
+			_is_bracing = true
+	else:
+		if _is_bracing:
+			mass = _default_mass
+			angular_damp = _default_angular_damp
+			_is_bracing = false
+
+	# 2. The Tackle
+	# Can only initiate tackle in NORMAL state and if cooldown allows
+	if current_state == State.NORMAL and _cooldown_timer <= 0:
+		if Input.is_action_just_pressed("tackle") or Input.is_action_just_pressed("hard_tackle"):
+			if current_stamina > 20: # Check threshold
+				_perform_tackle()
+
+func _perform_tackle():
+	current_state = State.TACKLING
+	_tackle_timer = tackle_duration
+	_cooldown_timer = tackle_cooldown
+	# Optional: Consume stamina? The prompt says "Can only tackle if stamina > 20".
+	# Usually this implies cost.
+	current_stamina -= 20.0
+
+	# Calculate Tackle Direction
+	var tackle_dir = Vector3.FORWARD
+	if _camera:
+		tackle_dir = -_camera.global_transform.basis.z
+	else:
+		# Fallback to global forward if no camera
+		tackle_dir = Vector3.FORWARD
+
+	tackle_dir.y = 0
+	tackle_dir = tackle_dir.normalized()
+
+	# Apply Massive Impulse
+	apply_central_impulse(tackle_dir * tackle_force)
+
+func _handle_collisions(state: PhysicsDirectBodyState3D):
+	# 4. Collision & "The Crumple"
+	var contact_count = state.get_contact_count()
+	if contact_count > 0:
+		for i in range(contact_count):
+			var collider = state.get_contact_collider_object(i)
+			if collider is RigidBody3D:
+				# Check relative velocity
+				var v1 = state.get_contact_local_velocity_at_position(i)
+				var v2 = state.get_contact_collider_velocity_at_position(i)
+				var relative_velocity = (v1 - v2).length()
+
+				# Prompt says: "If the player collides with another RigidBody at a high velocity (e.g., relative velocity > 5.0)"
+				if relative_velocity > 5.0:
+					# Check Brace
+					var effective_impact = relative_velocity
+					if _is_bracing:
+						effective_impact *= 0.5 # "reduce the impact force calculation"
+
+					play_impact_sound(effective_impact)
+
+					if effective_impact > impact_threshold:
+						# Trigger Crumple
+						current_state = State.CRUMPLED
+						_crumple_timer = crumple_duration
+						break # Only crumple once per frame
+
+func play_impact_sound(intensity):
+	print("playing thud sound: [%s]" % intensity)
 
 func _handle_balancing(state: PhysicsDirectBodyState3D):
 	# Calculate the rotation difference between the Torso's current up vector and Vector3.UP
@@ -106,20 +231,6 @@ func _handle_movement(state: PhysicsDirectBodyState3D, delta: float):
 		right.y = 0
 		forward = forward.normalized()
 		right = right.normalized()
-
-		# Calculate movement direction
-		# input_dir.y is "up/down" (forward/back), so negative y is forward usually?
-		# Standard WASD: W (up) is negative Y in 2D, but let's assume "move_up" means Forward.
-		# If "move_up" is positive 1.0, and we want to go forward:
-		# Let's assume standard mapping: move_up (W) -> 1.0 ? Usually get_axis(neg, pos).
-		# If move_up is the negative arg: get_axis("move_up", "move_down") -> W = -1.
-		# Let's stick to standard input vector logic.
-		# move_dir = forward * -input_dir.y + right * input_dir.x
-
-		# However, if user maps "move_up" to W and "move_down" to S,
-		# get_axis("move_down", "move_up") returns 1 for W.
-		# The prompt says "move_up", "move_down". Let's assume input_dir.y captures Forward/Back.
-		# To be safe, let's treat input_dir.y < 0 as forward (Up on stick).
 
 		var move_force_dir = (forward * -input_dir.y + right * input_dir.x).normalized()
 
