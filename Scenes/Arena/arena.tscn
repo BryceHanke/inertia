@@ -1,0 +1,24 @@
+[gd_scene load_steps=2 format=3 uid="uid://db5dij247d114"]
+
+[ext_resource type="PackedScene" uid="uid://d2xbiw2ogf3m1" path="res://Scenes/Characters/player.tscn" id="1_b8w6q"]
+
+[node name="Arena" type="Node3D"]
+
+[node name="CSGCombiner3D" type="CSGCombiner3D" parent="."]
+transform = Transform3D(1.9399495, 0, 0, 0, 1, 0, 0, 0, 1.7197284, 0, 0, 0)
+use_collision = true
+
+[node name="CSGBox3D2" type="CSGBox3D" parent="CSGCombiner3D"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 7, 0)
+size = Vector3(55, 30, 30)
+
+[node name="CSGBox3D" type="CSGBox3D" parent="CSGCombiner3D/CSGBox3D2"]
+operation = 2
+size = Vector3(50, 25, 25)
+
+[node name="OmniLight3D" type="OmniLight3D" parent="CSGCombiner3D"]
+transform = Transform3D(0.51547736, 0, 0, 0, 1, 0, 0, 0, 0.5814872, 0, 12, 0)
+light_energy = 17.855
+omni_range = 111.61274
+
+[node name="PlayerRoot" parent="." instance=ExtResource("1_b8w6q")]

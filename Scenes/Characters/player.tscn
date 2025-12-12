@@ -1,0 +1,59 @@
+[gd_scene load_steps=7 format=3 uid="uid://d2xbiw2ogf3m1"]
+
+[ext_resource type="Script" path="res://Scripts/Core/ActiveRagdoll.gd" id="1_3etf2"]
+
+[sub_resource type="PhysicsMaterial" id="PhysicsMaterial_40svl"]
+friction = 0.5
+
+[sub_resource type="SphereMesh" id="SphereMesh_al8ar"]
+radius = 0.25
+height = 0.75
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_gy20a"]
+
+[sub_resource type="SphereShape3D" id="SphereShape3D_cqrjx"]
+radius = 0.25
+
+[sub_resource type="SphereMesh" id="SphereMesh_khnq4"]
+radius = 0.25
+height = 0.5
+
+[node name="PlayerRoot" type="Node3D"]
+
+[node name="Torso" type="RigidBody3D" parent="."]
+physics_material_override = SubResource("PhysicsMaterial_40svl")
+linear_damp = 0.5
+angular_damp = 1.0
+script = ExtResource("1_3etf2")
+camera_path = NodePath("CameraPivot/SpringArm3D/Camera3D")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="Torso"]
+transform = Transform3D(1.9479911, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("SphereMesh_al8ar")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Torso"]
+shape = SubResource("SphereShape3D_gy20a")
+
+[node name="RayCast3D" type="RayCast3D" parent="Torso"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.6442065, 0)
+
+[node name="CameraPivot" type="Node3D" parent="Torso"]
+
+[node name="SpringArm3D" type="SpringArm3D" parent="Torso/CameraPivot"]
+spring_length = 10.0
+
+[node name="Camera3D" type="Camera3D" parent="Torso/CameraPivot/SpringArm3D"]
+
+[node name="Head" type="RigidBody3D" parent="Torso"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7952032, 0)
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Torso/Head"]
+shape = SubResource("SphereShape3D_cqrjx")
+
+[node name="ConeTwistJoint3D" type="ConeTwistJoint3D" parent="Torso/Head"]
+node_a = NodePath("..")
+node_b = NodePath("../..")
+
+[node name="MeshInstance3D2" type="MeshInstance3D" parent="Torso/Head"]
+mesh = SubResource("SphereMesh_khnq4")
+skeleton = NodePath("../..")
