@@ -1,6 +1,6 @@
 [gd_scene load_steps=7 format=3 uid="uid://d2xbiw2ogf3m1"]
 
-[ext_resource type="Script" path="res://Scripts/Core/ActiveRagdoll.gd" id="1_3etf2"]
+[ext_resource type="Script" uid="uid://do118x2d8xr54" path="res://ActiveRagdoll.gd" id="1_3etf2"]
 
 [sub_resource type="PhysicsMaterial" id="PhysicsMaterial_40svl"]
 friction = 0.5
